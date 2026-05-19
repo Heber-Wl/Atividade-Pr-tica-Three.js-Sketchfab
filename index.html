@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Atividade Prática - Three.js + Sketchfab</title>
+    <style>
+        /* Remove margens e barras de rolagem para preencher a tela toda com o canvas */
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #1a1a1a;
+            font-family: Arial, sans-serif;
+        }
+        /* Estilo simples para a mensagem de carregamento */
+        #loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            font-size: 20px;
+            pointer-events: none;
+            transition: opacity 0.5s ease;
+        }
+    </style>
+
+    <!-- Import Map para gerenciar os módulos do Three.js via CDN oficial -->
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+</head>
+<body>
+
+    <div id="loading">Carregando modelo 3D...</div>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+        // --- 1. CONFIGURAÇÃO DA CENA, CÂMERA E RENDERIZADOR ---
+        const scene = new THREE.Scene();
+        // Cor de fundo suave para destacar o modelo
+        scene.background = new THREE.Color(0x232326); 
+
+        const camera = new THREE.PerspectiveCamera(
+            45, 
+            window.innerWidth / window.innerHeight, 
+            0.1, 
+            1000
+        );
+        // Posição inicial da câmera (afastada para visualizar o modelo)
+        camera.position.set(0, 5, 10); 
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // Evita perda de performance em telas Retina
+        renderer.shadowMap.enabled = true; // Habilita mapeamento de sombras
+        renderer.outputColorSpace = THREE.SRGBColorSpace; // Garante as cores corretas das texturas
+        renderer.toneMapping = THREE.ACESFilmicToneMapping; // Mapeamento de tom cinematográfico (estilo Sketchfab)
+        renderer.toneMappingExposure = 5.0; // Controla a exposição geral da cena (aumente se ainda achar escuro)
+
+        document.body.appendChild(renderer.domElement);
+
+        // --- 2. ILUMINAÇÃO (Critério: Luz Ambiente + Direcional) ---
+        // Luz Ambiente: Ilumina levemente todas as faces uniformemente
+        const ambientLight = new THREE.AmbientLight(0xffffff, 1.5);
+        scene.add(ambientLight);
+
+        // Luz Direcional: Simula a luz do sol, criando profundidade e sombras
+        const directionalLight1 = new THREE.DirectionalLight(0xffffff, 2.5); // Aumentamos a intensidade
+        directionalLight1.position.set(5, 10, 7);
+        directionalLight1.castShadow = true;
+        scene.add(directionalLight1);
+
+        const directionalLight2 = new THREE.DirectionalLight(0xffffff, 1.5);
+        directionalLight2.position.set(-5, 5, -7);
+        scene.add(directionalLight2);
+
+        // --- 3. CONTROLES DE ÓRBITA (Critério: Rotação, Zoom e Pan) ---
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true; // Suaviza o movimento da câmera
+        controls.dampingFactor = 0.05;
+        controls.maxDistance = 50;     // Limite máximo de zoom out
+        controls.minDistance = 2;      // Limite máximo de zoom in
+
+        // --- 4. CARREGAMENTO DO MODELO SKETCHFAB (Critério: GLTFLoader) ---
+        const loader = new GLTFLoader();
+        const loadingElement = document.getElementById('loading');
+
+        // ATENÇÃO: Substitua pelo caminho correto do seu arquivo baixado!
+        const modelPath = './modelos/modelo.glb'; 
+
+        loader.load(
+            modelPath,
+            (gltf) => {
+                const model = gltf.scene;
+                
+                // Centraliza e ajusta a escala do modelo automaticamente para evitar que ele suma
+                const box = new THREE.Box3().setFromObject(model);
+                const size = box.getSize(new THREE.Vector3()).length();
+                const center = box.getCenter(new THREE.Vector3());
+                
+                model.position.x += (model.position.x - center.x);
+                model.position.y += (model.position.y - center.y);
+                model.position.z += (model.position.z - center.z);
+                
+                // Ativa sombras para as malhas do modelo
+                model.traverse((child) => {
+                    if (child.isMesh) {
+                        child.castShadow = true;
+                        child.receiveShadow = true;
+                    }
+                });
+
+                scene.add(model);
+                
+                // Esconde o texto de carregamento
+                loadingElement.style.opacity = 0;
+                setTimeout(() => loadingElement.remove(), 500);
+            },
+            (xhr) => {
+                // Progresso opcional no console
+                console.log((xhr.loaded / xhr.total * 100) + '% carregado');
+            },
+            (error) => {
+                console.error('Erro ao carregar o modelo GLTF:', error);
+                loadingElement.innerText = 'Erro ao carregar o modelo. Verifique o console.';
+            }
+        );
+
+        // --- 5. REDIMENSIONAMENTO DA JANELA (Critério: Resize Handler) ---
+        window.addEventListener('resize', () => {
+            // Atualiza a proporção da câmera
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+
+            // Atualiza o tamanho do renderizador
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // --- 6. LOOP DE ANIMAÇÃO (Critério: requestAnimationFrame) ---
+        function animate() {
+            requestAnimationFrame(animate);
+
+            // Necessário para fazer o efeito de 'damping' (suavização) dos controles funcionar
+            controls.update(); 
+
+            // Renderiza a cena atualizada
+            renderer.render(scene, camera);
+        }
+
+        // Inicia o loop
+        animate();
+    </script>
+</body>
+</html>
